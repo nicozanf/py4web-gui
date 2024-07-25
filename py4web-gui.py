@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import psutil, socket, subprocess, time, webbrowser
+import os, psutil, socket, subprocess, sys, time, webbrowser
 
 try:
     import tkinter as tk
@@ -11,6 +11,7 @@ except ModuleNotFoundError:
 from tkinter import LEFT, ttk, messagebox, scrolledtext
 from tkinter import PhotoImage 
 
+PY4WEBGUI_VERSION = '1.1.0'
 
 class ToolTip(object):
     def __init__(self, widget):
@@ -69,23 +70,39 @@ def find_processes_by_name_and_command(command_substring1, command_substring2):
                     # split cmdline also on '=' if needed
                     cmdline = [word for line in proc.info['cmdline'] for word in line.split('=')]
                     
-                    #  -P, --port INTEGER            Port number  [default: 8000]
                     proc.info["port"] = check_cmdline(cmdline, '-P', '--port', '8000')
-                    #   --ssl_cert PATH               SSL certificate file for HTTPS
-                    if check_cmdline(cmdline, '--ssl_cert', False, False):
+                    proc.info["ssl_cert"] = check_cmdline(cmdline, '--ssl_cert', False, False)
+                    if proc.info["ssl_cert"]:
                         proc.info["protocol"]="https"
                     else:
                         proc.info["protocol"]="http"
-
-                    # -U, --url_prefix TEXT         Prefix to add to all URLs in and out
+                    proc.info["ssl_key"] = check_cmdline(cmdline, '--ssl_key', False, False)
                     proc.info["url_prefix"] = check_cmdline(cmdline, '-U', '--url_prefix', False)
                     if not proc.info["url_prefix"]:
                         proc.info["url_prefix"] = ''
-                    
                     proc.info["app_name"] = ''
                     proc.info["stopped"] = False 
+                    errorlog = check_cmdline(cmdline, '--errorlog', False, False)
+                    if errorlog:
+                        if os.path.isdir(errorlog):
+                            log_file = os.path.join(errorlog, "server-py4web.log")
+                        else:
+                            log_file = errorlog
+                    else:
+                        log_file = False
+                    proc.info["errorlog"] = log_file
+                    proc.info["loglevel"] = check_cmdline(cmdline, '-L', '--logging_level', '30')
+                    proc.info["pw_file"] = check_cmdline(cmdline, '-p', '--password_file', 'password.txt')
+                    proc.info["host"] = check_cmdline(cmdline, '-H', '--host', '127.0.0.1')
+                    proc.info["server"] = check_cmdline(cmdline, '-s', '--server', 'default')
+                    proc.info["workers"] = check_cmdline(cmdline, '-w', '--number_workers', '0')
+                    proc.info["dash_mode"] = check_cmdline(cmdline, '-d', '--dashboard_mode', 'full')
+                    proc.info["watch"] = check_cmdline(cmdline, '--watch', False, 'lazy')
+                    proc.info["debug"] = check_cmdline(cmdline, '-D', '--debug', False)
+                    proc.info["app_names"] = check_cmdline(cmdline, '-A', '--app_names', 'all')
 
                     matching_processes.append(proc.info)
+        
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
     
@@ -121,7 +138,8 @@ def check_default_process(processes):
         'port':'8000',
         'url_prefix' : '',
         'cmdline': 'python3 ./py4web.py run apps'.split(),
-        'cwd': '/home/nico/py4web',
+        'cwd': os.getcwd(),
+        'pw_file': 'password.txt',
         'app_name' : 'DEFAULT',
         'stopped' : True,
     }
@@ -195,7 +213,7 @@ def search_processes():
             action_button = ttk.Button(result_frame, image = photo_start, command=lambda app_name=proc['app_name']: start_process(app_name))
             action_button.image = photo_start,  # Keep a reference to the image
             if is_port_in_use(proc['port']):
-                create_tooltip(action_button, "PORT busy")
+                create_tooltip(action_button, f"Port {proc['port']} not available")
                 action_button.config(state=tk.DISABLED)
             action_button.grid(row=i, column=7, padx=5, pady=2, sticky='nsew')
         else: 
@@ -204,8 +222,9 @@ def search_processes():
             action_button.grid(row=i, column=7, padx=5, pady=2, sticky='nsew')
         
         dashboard_button = ttk.Button(result_frame, text="Dashboard", \
-                                command=lambda protocol=proc['protocol'], port=proc['port'], prefix=proc["url_prefix"]: \
-                                run_dashboard(protocol, port, prefix))
+                                command=lambda protocol=proc['protocol'], port=proc['port'], prefix=proc["url_prefix"], \
+                                    pw_file=proc["pw_file"], cwd=proc["cwd"]: \
+                                run_dashboard(protocol, port, prefix, pw_file, cwd))
         if proc['stopped']:
             dashboard_button.config(state=tk.DISABLED)
         dashboard_button.grid(row=i, column=8, padx=5, pady=2, sticky='nsew')
@@ -241,31 +260,51 @@ def update_log(text_area, log_file_path):
 def setting_process(proc):
     port = int(proc['port'])
     pid = int(proc['pid'])
-    log_file_path = './error.log'  # TODO
+    log_file_path = proc["errorlog"]
     cmdline=" ".join(proc['cmdline'])
     cwd=proc['cwd']
     protocol = proc['protocol']
     port = proc['port']
     url_prefix = proc["url_prefix"]
     homepage = f"{protocol}://localhost:{port}{url_prefix}"
-    
+    loglevel = str(proc["loglevel"])
+    pw_file = str(proc["pw_file"])
+    host = proc["host"]
+    server = proc["server"]
+    workers = proc["workers"]
+    dash_mode = proc["dash_mode"]
+    watch = proc["watch"] 
+    debug = proc["debug"]
+    if debug:
+        debug = "Yes"
+    else:
+        debug = "No"
+    app_names = proc["app_names"] 
+    ssl_cert = proc["ssl_cert"]
+    ssl_key = proc["ssl_key"]
+
+
+
     def resize(event):
         text_area.config(width=event.width, height=event.height)
 
     top = tk.Toplevel(root)
     top.title("Py4web process details")
 
-    #tk.Label(top, text=f"PID: {pid}, Port: {port}", anchor="w").pack(pady=10)
     tk.Label(top, text=f"  PID: {pid}  -   Port: {port}", anchor="w").pack(fill='both')
-    tk.Label(top, text=f"  Path: {cwd}", anchor="w").pack(fill='both')
     tk.Label(top, text=f"  Command: {cmdline}", anchor="w").pack(fill='both')
+    tk.Label(top, text=f"  Path: {cwd}  -  Password file: {pw_file}", anchor="w").pack(fill='both')
     tk.Label(top, text=f"  Homepage: {homepage}", anchor="w").pack(fill='both')
+    tk.Label(top, text=f"  Host IP: {host}  -  Dashboard mode: {dash_mode}  -  Web Server: {server}  -  Workers: {workers}", anchor="w").pack(fill='both')
+    tk.Label(top, text=f"  SSL certificate: {ssl_cert}  -  SSL key: {ssl_key}", anchor="w").pack(fill='both')
+    tk.Label(top, text=f"  Watch changes: {watch}  -  App names: {app_names}", anchor="w").pack(fill='both')
+    tk.Label(top, text=f"  Logfile: {log_file_path}    -  Loglevel = {loglevel}  -  Debug = {debug}", anchor="w").pack(fill='both')
 
     text_area = scrolledtext.ScrolledText(top, wrap=tk.WORD)
     text_area.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
     update_log(text_area, log_file_path)
 
-    top.geometry("600x200")
+    top.geometry("700x600")
     top.bind('<Configure>', resize)
 
 
@@ -306,7 +345,16 @@ def stop_process(pid):
     finally:
         search_processes()
 
-def run_dashboard(protocol='http', port='8000', url_prefix=None):
+def run_dashboard(protocol='http', port='8000', url_prefix=None, pw_file=False, cwd=False):
+    if pw_file and cwd:
+        pw_file_full = os.path.join(cwd, pw_file)
+        if not os.path.isfile(pw_file_full):
+            messagebox.showerror("Error", f"Failed to find password file {pw_file_full}.\n\n Dashboard cannot run!")
+            return
+    else:
+        messagebox.showerror("Error", f"Failed to identify password file")
+        return
+
     try:
         url = f"{protocol}://localhost:{port}{url_prefix}/_dashboard"
         webbrowser.open(url, new=0, autoraise=True)
@@ -323,7 +371,7 @@ def run_home(protocol='http', port='8000', url_prefix=None):
 
 
 def show_about():
-    messagebox.showinfo("About", "Py4web-GUI\n\nVersion 1.0\nDeveloped by nicozanf@gmail.com")
+    messagebox.showinfo("About", f"Py4web-GUI\n\nVersion {PY4WEBGUI_VERSION}\nDeveloped by nicozanf@gmail.com")
 
 
 # Setup Tkinter window
@@ -338,6 +386,16 @@ image = PhotoImage(file='docs/images/logo_with_py4web.png')
 image_label = ttk.Label(root, image=image)
 image_label.grid(row=0, column=0, padx=5, pady=5, sticky='nw')
 
+try:
+    from py4web import __version__ 
+except:
+    __version__ = "N/A"
+py4web_version = __version__
+python_version = sys.version.split()[0] + " "
+
+info_label = ttk.Label(root, text=f"  Py4web-gui {PY4WEBGUI_VERSION} with Py4web {py4web_version} on Python {python_version}", \
+                       foreground="blue", background="#93c9d9", relief=tk.SOLID, borderwidth=1, font=("tahoma", "14", "bold"))
+info_label.grid(row=0, column=0, padx=5, pady=5, sticky='se')
 
 # Create a menu bar
 menu_bar = tk.Menu(root)
