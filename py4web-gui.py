@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
-PY4WEBGUI_VERSION = '1.3.0'
+PY4WEBGUI_VERSION = '1.4.0'
+PY4WEBGUI_DATE = '2024.08.09'
 
 import os, pathlib, platform, psutil, shutil, socket, subprocess, sys, time, tomlkit, webbrowser
 
@@ -220,7 +221,7 @@ def add_toml_processes(processes):
     
     for key, value in toml.items():
         if isinstance(value, dict):
-            instance_name = value['name']
+            instance_name = value['instance_name']
             instance_command = (f'{Py4web_cmd} run ' + value['command']).split()
 
             if processes:
@@ -273,16 +274,16 @@ def search_processes():
         photo_start = tk.PhotoImage(file = "./docs/images/icon-start.png") 
         photo_stop = tk.PhotoImage(file = "./docs/images/icon-stop.png")
         photo_lens = tk.PhotoImage(file = "./docs/images/icon-lens.png")
+        photo_gear = tk.PhotoImage(file = "./docs/images/icon-gear.png")
     except:
         print("Cannot find icon png files")
         exit(1)
 
     headers = ["                 Working Directory", "                                      Command Line", 
-                 "Protocol", "Port", "  URL prefix", " INSTANCE", " PID","    Action", "        ", "      "]
+                 "Protocol", "Port", "  URL prefix", " INSTANCE", "      ", " PID","    Action", "        ", "      "]
     
     # add / name instances as defined in the toml file
     processes = add_toml_processes(processes)
-
 
     for col, header in enumerate(headers):
         ttk.Label(result_frame, text=header, font=('Arial', 10, 'bold')).grid(row=0, column=col, padx=5, pady=5, sticky='nsew')
@@ -303,11 +304,27 @@ def search_processes():
         cmd_text.grid(row=i, column=1, padx=5, pady=2, sticky='nsew')
         create_tooltip(cmd_text, " ".join(proc['cmdline']))
         
+
+        if not proc.get('instance_name'):
+            proc['instance_name'] = ''
+
         ttk.Label(result_frame, text=proc['protocol']).grid(row=i, column=2, padx=5, pady=2, sticky='w')
         ttk.Label(result_frame, text=proc['port']).grid(row=i, column=3, padx=5, pady=2, sticky='w')
         ttk.Label(result_frame, text=proc['url_prefix']).grid(row=i, column=4, padx=5, pady=2, sticky='w')
         ttk.Label(result_frame, text=proc['instance_name']).grid(row=i, column=5, padx=5, pady=2, sticky='w')
-        ttk.Label(result_frame, text=proc['pid']).grid(row=i, column=6, padx=5, pady=2, sticky='e')
+
+
+        # gear column
+        if proc['instance_name']:
+            setting_button = ttk.Button(result_frame, image = photo_gear, command = lambda proc=proc: edit_process(proc))
+            setting_button.image = photo_gear,  # Keep a reference to the image
+            setting_button.grid(row=i, column=6, padx=5, pady=2, sticky='nsew')
+        else:
+            ttk.Label(result_frame, text=proc['instance_name']).grid(row=i, column=6, padx=5, pady=2, sticky='w')
+
+
+
+        ttk.Label(result_frame, text=proc['pid']).grid(row=i, column=7, padx=5, pady=2, sticky='e')
 
         # PID column
         if proc['stopped']:
@@ -317,13 +334,11 @@ def search_processes():
             if is_port_in_use(proc['port']):
                 create_tooltip(action_button, f"Port {proc['port']} not available")
                 action_button.config(state=tk.DISABLED)
-            action_button.grid(row=i, column=7, padx=5, pady=2, sticky='nsew')
+            action_button.grid(row=i, column=8, padx=5, pady=2, sticky='nsew')
         else: 
             action_button = ttk.Button(result_frame, image = photo_stop, command=lambda pid=proc['pid']: stop_process(pid))
             action_button.image = photo_stop,  # Keep a reference to the image
-            action_button.grid(row=i, column=7, padx=5, pady=2, sticky='nsew')
-        
-        print(f'{proc = }')
+            action_button.grid(row=i, column=8, padx=5, pady=2, sticky='nsew')
         
         dashboard_button = ttk.Button(result_frame, text="Dashboard", \
                                 command=lambda protocol=proc['protocol'], port=proc['port'], prefix=proc["url_prefix"], \
@@ -331,28 +346,134 @@ def search_processes():
                                 run_dashboard(protocol, port, prefix, pw_file, cwd))
         if proc['stopped']:
             dashboard_button.config(state=tk.DISABLED)
-        dashboard_button.grid(row=i, column=8, padx=5, pady=2, sticky='nsew')
+        dashboard_button.grid(row=i, column=9, padx=5, pady=2, sticky='nsew')
 
         home_button = ttk.Button(result_frame, text="Homepage", \
                                 command=lambda protocol=proc['protocol'], port=proc['port'], prefix=proc["url_prefix"]: \
                                 run_home(protocol, port, prefix))
         if proc['stopped']:
             home_button.config(state=tk.DISABLED)
-        home_button.grid(row=i, column=9, padx=5, pady=2, sticky='nsew')
+        home_button.grid(row=i, column=10, padx=5, pady=2, sticky='nsew')
 
         if not proc['stopped']:
-            setting_button = ttk.Button(result_frame, image = photo_lens, command = lambda proc=proc: setting_process(proc))
-            setting_button.image = photo_lens,  # Keep a reference to the image
-            setting_button.grid(row=i, column=10, padx=5, pady=2, sticky='nsew')
-        
+            lens_button = ttk.Button(result_frame, image = photo_lens, command = lambda proc=proc: view_process(proc))
+            lens_button.image = photo_lens,  # Keep a reference to the image
+            lens_button.grid(row=i, column=11, padx=5, pady=2, sticky='nsew')
+
 
     for col in range(6):
         result_frame.grid_columnconfigure(col, weight=1)
 
 
+def change_instance(proc, new_cmd):
+    confirm_window = tk.Tk()
+    confirm_window.title("Confirm changes")
+
+    confirm_message = tk.Label(confirm_window, text=f"   Save the changes to instance {proc['instance_name']} for its next run?   \n\n")
+    confirm_message.pack(pady=10)
+
+    def do_changes():
+        global toml_file 
+        new_name = proc['instance_name']
+
+        with open(toml_file, mode="rt", encoding="utf-8") as fp:
+            toml = tomlkit.load(fp)
+        
+        toml[new_name]["command"] = new_cmd
+        with open(toml_file, mode="wt", encoding="utf-8") as fp:
+            tomlkit.dump(toml, fp)
+        
+
+    def on_yes():
+            confirm_window.destroy()
+            do_changes()
+            search_processes()
+
+    def on_cancel():
+        confirm_window.destroy()
+
+    yes_button = tk.Button(confirm_window, text="Yes", command=on_yes)
+    yes_button.pack(side=tk.LEFT, padx=20, pady=20)
+
+    cancel_button = tk.Button(confirm_window, text="Cancel", command=on_cancel)
+    cancel_button.pack(side=tk.RIGHT, padx=20, pady=20)
+
+    return
+
+def edit_process(proc):
+    """
+    Edit properties of a given instance
+    """
+
+    def check_input(proc, old_cmd):
+        new_cmd = entry.get()
+        new_cmd = new_cmd.strip()
+        edit_window.destroy()
+        if not old_cmd == new_cmd:
+            change_instance(proc, new_cmd)
+        return
 
 
-def setting_process(proc):
+    def on_cancel():
+        edit_window.destroy()
+
+    def cut_cmdline(cmdline):
+        if cmdline[1].lower() == 'run':
+            cmdline=cmdline[2:]
+        elif cmdline[2].lower() == 'run':
+            cmdline=cmdline[3:]
+        elif cmdline[3].lower() == 'run':
+            cmdline=cmdline[4:]
+        else:
+            print(f'ERROR: cannot find "run" parameter in cmdline: {cmdline} ')
+            exit(1)
+        return cmdline
+
+    global root
+    edit_window = tk.Toplevel(root)
+    #edit_window = tk.Tk()
+    edit_window.title(f'Edit Instance {proc['instance_name']}')
+
+    cmdline = proc['cmdline']
+    old_cmd = str(' '.join(cut_cmdline(cmdline)))
+
+    label = tk.Label(edit_window, text=f"Edit the 'py4web run' parameters. \n \
+                     See https://py4web.com/_documentation/static/en/chapter-03.html#run-command-option \
+                     \n\n Old run parameters:  '{old_cmd}'. \
+                     \n\n\nNew run parameters:  ")
+    label.pack(pady=10)
+
+    entry = tk.Entry(edit_window, width=50)
+    entry.insert(0, old_cmd)
+    entry.pack(pady=10)
+
+    save_button = tk.Button(edit_window, text="Save", command=lambda proc=proc, old_cmd=old_cmd: check_input(proc, old_cmd))
+    save_button.pack(side=tk.RIGHT, padx=20, pady=10)
+
+    cancel_button = tk.Button(edit_window, text="Cancel", command=on_cancel)
+    cancel_button.pack(side=tk.RIGHT, padx=20, pady=10)
+
+
+    # FOCUS STUFF
+    def on_close():
+        edit_window.destroy()
+        root.grab_release()  # Re-enable the parent window
+    edit_window.protocol("WM_DELETE_WINDOW", on_close)
+    edit_window.transient(root)  # Set confirm window as transient for the root window
+    edit_window.focus_force()
+    def focus_edit_window(event=None):
+        if edit_window and edit_window.winfo_exists():  # Check if child window exists
+            edit_window.deiconify()  # Ensure the window is not minimized
+            edit_window.lift()  # Bring to front
+            edit_window.focus_force()
+    # Redirect focus to the confirm window when the root window is clicked
+    root.bind("<FocusIn>", focus_edit_window)    
+
+    edit_window.mainloop()
+
+
+
+def view_process(proc):
     """
     Get info and logs for a given process
     """
@@ -603,9 +724,6 @@ def open_password_window(password_file):
 
 def run_dashboard(protocol='http', port='8000', url_prefix=None, pw_file=False, cwd=False):
 
-    print(f'{pw_file = }')
-    print(f'{cwd = }')
-
     if pw_file and cwd:
         pw_file_full = os.path.join(cwd, pw_file)
         if not os.path.isfile(pw_file_full):
@@ -667,21 +785,24 @@ def initialize_toml():
 
     with open(toml_file, mode="rt", encoding="utf-8") as fp:
         toml = tomlkit.load(fp)
+
+    if not 'STANDARD' in toml:
+        instance = tomlkit.table()
+        instance.add("instance_name", "STANDARD")
+        instance.add("command", "apps --errorlog py4web.log -L 20")
+        toml.add("STANDARD", instance)
+        with open(toml_file, mode="wt", encoding="utf-8") as fp:
+            tomlkit.dump(toml, fp)
+
     if not 'MINIMAL' in toml:
         instance = tomlkit.table()
-        instance.add("name", "MINIMAL")
+        instance.add("instance_name", "MINIMAL")
         instance.add("command", "apps")
         toml.add("MINIMAL", instance)
         with open(toml_file, mode="wt", encoding="utf-8") as fp:
             tomlkit.dump(toml, fp)
 
-    if not 'STANDARD' in toml:
-        instance = tomlkit.table()
-        instance.add("name", "STANDARD")
-        instance.add("command", "apps -L 20")
-        toml.add("STANDARD", instance)
-        with open(toml_file, mode="wt", encoding="utf-8") as fp:
-            tomlkit.dump(toml, fp)
+
 
     return            
 
