@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
-PY4WEBGUI_VERSION = '1.4.0'
-PY4WEBGUI_DATE = '2024.08.09'
+PY4WEBGUI_VERSION = '1.5.0'
+PY4WEBGUI_DATE = '2024.10.10'
 
 import os, pathlib, platform, psutil, shutil, socket, subprocess, sys, time, tomlkit, webbrowser
 
@@ -189,9 +189,10 @@ def name_running_instance(processes, instance_name, instance_command):
     """
     already_running = False
     for process in processes:
-        if process['cmdline'] ==  instance_command:
-            process['instance_name'] =  instance_name
-            already_running = True
+        if process['cmdline'] ==  instance_command and not process['stopped']:
+                if not 'instance_name' in process: # if not already named
+                    process['instance_name'] =  instance_name
+                    already_running = True
     return (processes, already_running)
 
 def add_stopped_instance(processes, instance_name, instance_command):
@@ -247,15 +248,15 @@ def add_toml_processes(processes):
     return processes
     
 
-def add_instance_to_processes(processes, app):
+def add_instance_to_processes(processes, instance):
     """
-    Add a not-running process in the list, so it can be started
+    Add a not-running instance in the list, so it can be started
     """
-    processes.append(app)
+    processes.append(instance)
     return processes
 
 
-def search_processes():
+def run_main_window():
 
     global root
     global result_frame
@@ -276,7 +277,7 @@ def search_processes():
         photo_lens = tk.PhotoImage(file = "./docs/images/icon-lens.png")
         photo_gear = tk.PhotoImage(file = "./docs/images/icon-gear.png")
     except:
-        print("Cannot find icon png files")
+        print("ERROR: cannot find icon png files")
         exit(1)
 
     headers = ["                 Working Directory", "                                      Command Line", 
@@ -387,7 +388,7 @@ def change_instance(proc, new_cmd):
     def on_yes():
             confirm_window.destroy()
             do_changes()
-            search_processes()
+            run_main_window()
 
     def on_cancel():
         confirm_window.destroy()
@@ -413,7 +414,6 @@ def edit_process(proc):
             change_instance(proc, new_cmd)
         return
 
-
     def on_cancel():
         edit_window.destroy()
 
@@ -431,7 +431,6 @@ def edit_process(proc):
 
     global root
     edit_window = tk.Toplevel(root)
-    #edit_window = tk.Tk()
     edit_window.title(f'Edit Instance {proc['instance_name']}')
 
     cmdline = proc['cmdline']
@@ -446,6 +445,16 @@ def edit_process(proc):
     entry = tk.Entry(edit_window, width=50)
     entry.insert(0, old_cmd)
     entry.pack(pady=10)
+
+    add_instance_button = tk.Button(edit_window, text="Add a new instance", command=add_instance)
+    add_instance_button.pack(side=tk.LEFT, padx=20, pady=10)
+
+    delete_instance_button = tk.Button(edit_window, text="Delete this instance", command=lambda proc=proc, edit_window=edit_window: delete_instance(proc, edit_window))
+    delete_instance_button.pack(side=tk.LEFT, padx=20, pady=10)
+
+    rename_instance_button = tk.Button(edit_window, text="Rename this instance", command=lambda proc=proc, edit_window=edit_window: rename_instance(proc, edit_window))
+    rename_instance_button.pack(side=tk.LEFT, padx=20, pady=10)
+
 
     save_button = tk.Button(edit_window, text="Save", command=lambda proc=proc, old_cmd=old_cmd: check_input(proc, old_cmd))
     save_button.pack(side=tk.RIGHT, padx=20, pady=10)
@@ -513,7 +522,9 @@ def view_process(proc):
         text_area.config(width=event.width, height=event.height)
 
     top = tk.Toplevel(root)
-    top.title("Py4web process details")
+    if not proc['instance_name']:
+        proc['instance_name'] = "UNNAMED"
+    top.title(f"Py4web instance {proc['instance_name']} details")
     top.grab_set()  # Make the parent window inactive
 
     tk.Label(top, text=f"  PID: {pid}  -   Port: {port}", anchor="w").pack(fill='both')
@@ -574,6 +585,143 @@ def is_port_in_use(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         return s.connect_ex(('localhost', port)) == 0
 
+def add_instance():
+# Function to add a new instance
+
+    global root
+
+
+    add_instance_window = tk.Toplevel(root)
+    add_instance_window.title('Add a new instance')
+
+    name_label = tk.Label(add_instance_window, text='New instance name: ')
+    name_label.pack(side = LEFT)
+
+    name_entry = tk.Entry(add_instance_window, width=20)
+    name_entry.pack(side = LEFT)
+
+    def on_cancel():
+        if add_instance_window:
+            add_instance_window.destroy()
+        
+
+    def on_save():
+
+        new_instance_name = name_entry.get()
+        new_instance_name = new_instance_name.upper()
+
+        if add_instance_window:
+            add_instance_window.destroy()
+
+
+        with open(toml_file, mode="rt", encoding="utf-8") as fp:
+            toml = tomlkit.load(fp)
+        # check for duplicate instance_name
+        if not new_instance_name in toml:
+            new_instance = tomlkit.table()
+            new_instance.add("instance_name", new_instance_name)
+            new_instance.add("command", "apps")
+            toml.add(new_instance_name, new_instance)
+            with open(toml_file, mode="wt", encoding="utf-8") as fp:
+                tomlkit.dump(toml, fp)
+            messagebox.showinfo("Instance added", f"Successfully added new instance {new_instance_name}.")
+        else:
+            messagebox.showerror("Process Terminated", f"Cannot add {new_instance_name} because it already exists.")
+        
+        run_main_window()
+
+        
+
+
+
+    save_button = tk.Button(add_instance_window, text="Save", command=on_save)
+    save_button.pack(side=tk.RIGHT, padx=20, pady=10)
+
+    cancel_button = tk.Button(add_instance_window, text="Cancel", command=on_cancel)
+    cancel_button.pack(side=tk.RIGHT, padx=20, pady=10)
+
+def rename_instance(instance, edit_window):
+# Function to rename an existing instance
+
+    global root
+
+    edit_window.destroy()
+
+    rename_instance_window = tk.Toplevel(root)
+    rename_instance_window.title('Rename an instance')
+
+    name_label = tk.Label(rename_instance_window, text=f'New name for ' + instance["instance_name"] + " instance?")
+    name_label.pack(side = LEFT)
+
+    name_entry = tk.Entry(rename_instance_window, width=20)
+    name_entry.pack(side = LEFT)
+    name_entry.focus_set()
+
+
+    def on_cancel():
+        if rename_instance_window:
+            rename_instance_window.destroy()
+        
+
+    def on_save():
+
+        old_instance_name = instance["instance_name"] 
+        new_instance_name = name_entry.get()
+        new_instance_name = new_instance_name.upper()
+
+        if rename_instance_window:
+            rename_instance_window.destroy()
+
+
+        with open(toml_file, mode="rt", encoding="utf-8") as fp:
+            toml = tomlkit.load(fp)
+        if not new_instance_name in toml:
+            table_data = toml[old_instance_name]
+            del toml[old_instance_name]
+            toml[new_instance_name] = table_data
+            toml[new_instance_name]["instance_name"] = new_instance_name
+            with open(toml_file, mode="wt", encoding="utf-8") as fp:
+                tomlkit.dump(toml, fp)
+            messagebox.showinfo("Instance renamed", f"Successfully renamed old instance {old_instance_name} to {new_instance_name}.")
+        else:
+            messagebox.showerror("Process Terminated", f"Cannot rename {new_instance_name} because it already exists.")
+        
+        run_main_window()
+
+
+    save_button = tk.Button(rename_instance_window, text="Save", command=on_save)
+    save_button.pack(side=tk.RIGHT, padx=20, pady=10)
+
+    cancel_button = tk.Button(rename_instance_window, text="Cancel", command=on_cancel)
+    cancel_button.pack(side=tk.RIGHT, padx=20, pady=10)
+
+def delete_instance(instance, edit_window):
+
+
+    edit_window.destroy()
+
+    answer = messagebox.askquestion("Delete instance definition", "Are you sure you want to DELETE the py4web instance definition named " + instance["instance_name"] + " ?", icon='warning')
+    if not answer == 'yes':
+        messagebox.showinfo("Result", "Operation cancelled")
+        return
+
+    do_delete_instance(instance)
+
+
+    run_main_window()
+    
+def do_delete_instance(instance):
+    name = instance["instance_name"]
+    with open(toml_file, mode="rt", encoding="utf-8") as fp:
+        toml = tomlkit.load(fp)
+        toml.pop(name)
+    with open(toml_file, mode="wt", encoding="utf-8") as fp:
+        tomlkit.dump(toml, fp)
+
+    messagebox.showinfo("Instance deleted", f"Successfully deleted instance {instance["instance_name"]}.")
+    run_main_window()
+
+
 
 
 def start_process(proc):
@@ -600,12 +748,12 @@ def start_process(proc):
             confirm_window.destroy()
             subprocess.Popen(command)
             time.sleep(3)
-            search_processes()
+            run_main_window()
         else:
             confirm_window.destroy()
             subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             time.sleep(3)
-            search_processes()
+            run_main_window()
 
     def on_cancel():
         confirm_window.destroy()
@@ -662,7 +810,7 @@ def stop_process(pid):
     except psutil.TimeoutExpired:
         messagebox.showerror("Error", f"Failed to terminate process {pid} within timeout.")
     finally:
-        search_processes()
+        run_main_window()
 
 
 def open_password_window(password_file):
@@ -736,7 +884,7 @@ def run_dashboard(protocol='http', port='8000', url_prefix=None, pw_file=False, 
             else:
                 open_password_window(pw_file_full)
             time.sleep(3)
-            search_processes()
+            run_main_window()
     else:
         messagebox.showerror("Error", f"Failed to identify password file")
         return
@@ -866,15 +1014,17 @@ def main():
                 ('calibri', 10, 'bold', 'underline'),
                     foreground = 'green')
 
-    search_button = ttk.Button(mainframe, text="REFRESH", style='W.TButton',  command=search_processes)
-    search_button.grid(row=3, column=0, ipady=30, ipadx=30, padx=5, pady=10, sticky='e')
+    refresh_button = ttk.Button(mainframe, text="REFRESH", style='W.TButton',  command=run_main_window)
+    refresh_button.grid(row=3, column=0, ipady=30, ipadx=30, padx=5, pady=10, sticky='e')
 
+    new_instance_button = ttk.Button(mainframe, text="Add new instance", command=add_instance)
+    new_instance_button.grid(row=3, column=0, ipady=10, ipadx=30, padx=5, pady=10, sticky='w')
 
     result_frame = ttk.Frame(mainframe)
     result_frame.grid(row=1, column=0, padx=5, pady=5, sticky='nsew')
     mainframe.rowconfigure(1, weight=1)
     mainframe.columnconfigure(0, weight=1)
-    search_processes()
+    run_main_window()
 
     # Start the Tkinter event loop
     root.mainloop()
