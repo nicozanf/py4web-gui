@@ -14,7 +14,7 @@ It's quite simple, but:
  * you can create new instance definitions, change and delete them
  
 
-You can edit instances' details:
+You can look at instances' details and current logs:
 
 ![Alt text](./screenshots/details.png?raw=true "Main window") 
 
