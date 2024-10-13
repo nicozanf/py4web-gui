@@ -18,10 +18,16 @@ You can edit instances' details:
 
 ![Alt text](./screenshots/details.png?raw=true "Main window") 
 
-And even change its parameters (saved on disk):
+change its parameters (saved on disk):
 
 
 ![Alt text](./screenshots/edit.png?raw=true "Main window") 
+
+
+and even ask for the Dashboard password if needed:
+
+
+![Alt text](./screenshots/ask4pw.png?raw=true "Main window") 
 
 
 Last but not least, if combined with the binary versions (see https://github.com/nicozanf/py4web-pyinstaller), it surely makes the experience of installing and
@@ -30,12 +36,12 @@ running py4web even much simpler and enjoyable.
 
 ## MANUAL INSTALLATION
 
-Just copy the py4web-gui.py file in the main py4web folder and run it. If you're not using a recent version of the py4web program (since August 2024), you'll also
+Just copy the `py4web-gui.py` file in the main py4web folder and run it. If you're not using a recent version of the py4web program (since August 2024), you'll also
 need the icon files present in this repository under docs/images. Add the requirements if needed (see down here)
 
 ## REQUIREMENTS
 
-It needs the psutil and tomlkit module, as stated on py4web-gui.requirements.txt.
+It needs the `psutil` and `tomlkit` module, as stated on `py4web-gui.requirements.txt`.
 
 ## ISSUES:
 
