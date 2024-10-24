@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
-PY4WEBGUI_VERSION = '1.5.0'
-PY4WEBGUI_DATE = '2024.10.10'
+PY4WEBGUI_VERSION = '1.7.2'
+PY4WEBGUI_DATE = '2024.10.24'
 
 import os, pathlib, platform, psutil, shutil, socket, subprocess, sys, time, tomlkit, webbrowser
 
@@ -22,14 +22,17 @@ Py4web_cwd = os.getcwd()
 TOML_FILENAME = 'py4web-gui.toml'
 
 
-def set_py4web_path():
+def fix_MacOs_app():
     if platform.system() == "Darwin" and getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'): #running in a PyInstaller MacOs bundle
+            global Py4web_cwd
+
             running_path = pathlib.Path(os.path.dirname(os.path.abspath(__file__))) # it's a MacOs app, Framework dir
-            running_path = running_path.parent # Contents dir
-            running_path = running_path.parent # .app main dir
-            py4web_path = running_path.parent # py4web main dir
+            py4web_path = running_path.parent # Contents dir
+            #running_path = running_path.parent # .app main dir
+            #py4web_path = running_path.parent # py4web main dir
 
             os.chdir(pathlib.Path(py4web_path))
+            Py4web_cwd = os.getcwd()
             sys.path.insert(0, f'{py4web_path}/_internal') #needed for reading py4web version
 
 class ToolTip(object):
@@ -737,7 +740,8 @@ def start_process(proc):
     open_new_box_var = tk.BooleanVar(value=True)
     open_new_box_check = tk.Checkbutton(confirm_window, text="Show py4web output on console", variable=open_new_box_var)
     if platform.system() == "Darwin" and getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'): #running in a PyInstaller MacOs bundle
-            #open_new_box_check.config(state=tk.DISABLED)
+            open_new_box_var.set(False)
+            open_new_box_check.config(state=tk.DISABLED)
             create_tooltip(open_new_box_check, f"On MacOS apps run with Finder you don't have a console")
     
     open_new_box_check.pack(pady=5)
@@ -960,7 +964,7 @@ def main():
     global root
     global result_frame
 
-    set_py4web_path()
+    fix_MacOs_app()
     check_Py4web_cmd()
     initialize_toml()
 
